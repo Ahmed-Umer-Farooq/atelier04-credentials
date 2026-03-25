@@ -14,12 +14,13 @@ export const badgeWorker = new Worker(
       where: { id: credentialDbId },
     });
 
-    const svg = generateSVG({
+    const svg = await generateSVG({
       credential_id: credential.credential_id,
       participant_name: credential.participant_name,
       course_title: credential.course_title,
       completion_date: credential.completion_date,
       organization: credential.organization,
+      verification_url: credential.verification_url ?? `${process.env.ATELIER04_VERIFICATION_BASE}/${credential.credential_id}`,
     });
 
     const { svgUrl, pngUrl } = await generatePNG(svg, credential.credential_id);

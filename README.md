@@ -1,36 +1,67 @@
 # Atelier04 — Digital Credential & Badge System
 
-Standalone backend module for issuing EU-recognized digital credentials (EDC) and badges to course participants.
+Standalone backend module for issuing EU-recognized digital credentials (EDC) and open badges to course participants.
+
+---
+
+## Overview
+
+When a participant completes a course, your system calls our API. We handle:
+- Generating a unique credential ID (`A04-2026-0001`)
+- Building and signing an EDCI XML document
+- Submitting to the Europass wallet
+- Generating an SVG + PNG badge with QR code
+- Returning badge URLs, verification URL, and LinkedIn fields
+
+Your system stores the returned data and sends the email to the participant.
 
 ---
 
 ## Requirements
 
-- Node.js 18+
-- PostgreSQL 14+ (database: `atelier04`)
-- Redis 5+ (recommended 6.2+)
+| Requirement | Version |
+|-------------|---------|
+| Node.js | 18+ |
+| PostgreSQL | 14+ |
+| Redis | 5+ (6.2+ recommended) |
 
 ---
 
-## Setup
+## First-Time Setup
 
 ### 1. Install dependencies
+
 ```bash
 npm install
 ```
 
 ### 2. Configure environment
+
 ```bash
 cp .env.example .env
 ```
-Edit `.env` with your values. Note: if your PostgreSQL password contains `@`, encode it as `%40` in the URL.
 
-### 3. Push database schema
+Edit `.env` with your values. See the [Environment Variables](#environment-variables) section below.
+
+> **Note:** If your PostgreSQL password contains `@`, encode it as `%40` in the URL.
+> Example: `password@123` → `password%40123`
+
+### 3. Create the database
+
+In PostgreSQL, create the database:
+
+```sql
+CREATE DATABASE atelier04;
+```
+
+### 4. Push database schema
+
 ```bash
 npx prisma db push
 ```
 
-### 4. Generate Prisma client
+### 5. Generate Prisma client
+
 ```bash
 npx prisma generate
 ```
@@ -39,17 +70,24 @@ npx prisma generate
 
 ## Running
 
-Two processes must run simultaneously — open two terminals:
+Two processes must run simultaneously. Open two terminals:
 
 **Terminal 1 — API server:**
 ```bash
-npm run dev        # development
-npm run start      # production (after npm run build)
+npm run dev       # development (with hot reload)
+npm run build     # build for production
+npm run start     # production server
 ```
 
 **Terminal 2 — Background workers:**
 ```bash
 npm run workers
+```
+
+On startup you should see:
+```
+✅ Database connected: postgresql://localhost:5432/atelier04
+✅ Redis connected: redis://localhost:6379
 ```
 
 ---
@@ -65,9 +103,9 @@ Authorization: Bearer {API_KEY}
 
 ### POST /api/v1/credentials/issue
 
-Issue a digital credential when a participant completes a course.
+Call this when a participant completes a course.
 
-**Request:**
+**Request body:**
 ```json
 {
   "idempotency_key": "YOUR-INTERNAL-COMPLETION-ID",
@@ -85,7 +123,7 @@ Issue a digital credential when a participant completes a course.
 }
 ```
 
-**Response 202 — Accepted:**
+**Response 202 — Accepted (new credential):**
 ```json
 {
   "status": "accepted",
@@ -95,16 +133,23 @@ Issue a digital credential when a participant completes a course.
 }
 ```
 
-**Response 200 — Duplicate (idempotency_key already exists):**
-Returns existing credential data. Safe to retry.
+**Response 200 — Already exists (same idempotency_key):**
+Returns existing credential data. Safe to retry on network failure.
 
-**Validation errors → 422. Missing/wrong API key → 401.**
+| Status code | Meaning |
+|-------------|---------|
+| 202 | Accepted — processing started |
+| 200 | Duplicate — already issued |
+| 401 | Missing or wrong API key |
+| 422 | Validation error — check `details` field |
 
 ---
 
 ### GET /api/v1/credentials/{credential_id}/status
 
-Poll for processing status and retrieve outputs.
+Poll this endpoint to check processing status and retrieve outputs.
+
+**Recommended polling:** every 2 seconds, up to 30 seconds.
 
 **Response when completed:**
 ```json
@@ -126,32 +171,56 @@ Poll for processing status and retrieve outputs.
 }
 ```
 
-**Statuses:** `requested` → `processing` → `completed` / `failed`
+**Status values:**
+
+| Status | Meaning |
+|--------|---------|
+| `requested` | Received, queued for processing |
+| `processing` | Pipeline running |
+| `completed` | All outputs ready |
+| `failed` | Processing failed after 3 retries |
 
 ---
 
 ## Processing Pipeline
 
-When a credential is issued, it goes through 4 background jobs automatically:
+After a credential is issued, 4 background jobs run automatically:
 
 ```
-Job 1 (validate)       — validates data, sets status: PROCESSING
-Job 2 (edc_issue)      — builds EDCI XML, signs with eSeal, submits to Europass wallet
-Job 3 (badge_generate) — generates SVG + PNG badge, saves to /public/badges/
-Job 4 (complete)       — sets status: COMPLETED, writes audit log
+Job 1 — validate        REQUESTED → PROCESSING
+Job 2 — edc_issue       Build EDCI XML → Sign with eSeal → Submit to Europass
+Job 3 — badge_generate  Generate SVG + PNG badge with QR code
+Job 4 — complete        PROCESSING → COMPLETED, write audit log
 ```
 
-Each job retries 3 times with 10s delay on failure. If all retries exhausted → status: `failed`.
+Each job retries 3 times with a 10-second delay. After 3 failures → status: `failed`.
 
 ---
 
-## Pending Integrations (client to provide)
+## Environment Variables
 
-| Item | Status | Notes |
-|------|--------|-------|
-| eSeal `.p12` file | ⏳ Pending | Set `ESEAL_P12_PATH` + `ESEAL_P12_PASSWORD` in `.env`. Currently mock. |
-| Europass EDCI registration | ⏳ Pending | Replace `submitToWallet()` in `lib/europass/submitToWallet.ts` |
-| Badge design files | ⏳ Pending | Replace `lib/badge/generateSVG.ts` with designer assets |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `REDIS_URL` | ✅ | Redis connection string |
+| `API_KEY` | ✅ | Bearer token for API auth (min 32 chars) |
+| `BASE_URL` | ✅ | Your server's public URL (for badge URLs) |
+| `ATELIER04_VERIFICATION_BASE` | ✅ | Base URL for credential verification pages |
+| `EUROPASS_WALLET_URL` | ✅ | Europass EDCI wallet API endpoint |
+| `ESEAL_P12_PATH` | ⏳ | Path to eSeal `.p12` file (pending) |
+| `ESEAL_P12_PASSWORD` | ⏳ | Password for eSeal `.p12` file (pending) |
+
+---
+
+## Pending Integrations
+
+These are mocked and ready to be replaced when the client provides the assets:
+
+| Item | File to update | Status |
+|------|---------------|--------|
+| eSeal `.p12` signing | `lib/europass/signXML.ts` | ⏳ Awaiting `.p12` file |
+| Europass wallet submission | `lib/europass/submitToWallet.ts` | ⏳ Awaiting EDCI registration |
+| Badge design | `lib/badge/generateSVG.ts` | ⏳ Awaiting designer files |
 
 ---
 
@@ -163,36 +232,60 @@ With both `npm run dev` and `npm run workers` running:
 npx tsx tests/e2e.test.ts
 ```
 
-Tests cover: auth, validation, full pipeline, duplicate prevention, badge file generation, 404 handling.
+Tests cover:
+- Auth (401 on wrong key)
+- Validation (422 on missing fields)
+- Full pipeline: REQUESTED → PROCESSING → COMPLETED
+- Duplicate prevention (idempotency)
+- Badge SVG + PNG file generation
+- 404 on unknown credential
 
 ---
 
 ## File Structure
 
 ```
-app/api/v1/credentials/
-  issue/route.ts          — POST endpoint
-  [id]/status/route.ts    — GET status endpoint
+app/
+  api/v1/credentials/
+    issue/route.ts              POST — issue credential
+    [id]/status/route.ts        GET  — check status
+  api/health/route.ts           GET  — connection health check
 lib/
-  auth/validateApiKey.ts  — Bearer token auth
-  db/prisma.ts            — Prisma singleton
+  auth/validateApiKey.ts        Bearer token validation
+  db/prisma.ts                  Prisma client singleton
   queue/
-    index.ts              — BullMQ queues + Redis
-    failureHandler.ts     — Marks FAILED on exhausted retries
+    index.ts                    BullMQ queues + Redis connections
+    failureHandler.ts           Marks FAILED on exhausted retries
     workers/
-      validate.worker.ts
-      edc.worker.ts
-      badge.worker.ts
-      complete.worker.ts
+      validate.worker.ts        Job 1
+      edc.worker.ts             Job 2
+      badge.worker.ts           Job 3
+      complete.worker.ts        Job 4
   europass/
-    buildXML.ts           — EDCI XML builder
-    signXML.ts            — eSeal signing (mock)
-    submitToWallet.ts     — Europass API (mock)
+    buildXML.ts                 EDCI XML builder
+    signXML.ts                  eSeal signing (mock — replace when .p12 provided)
+    submitToWallet.ts           Europass API (mock — replace when registered)
   badge/
-    generateSVG.ts        — SVG badge generator
-    generatePNG.ts        — SVG → PNG via Sharp
+    generateSVG.ts              SVG badge with QR code
+    generatePNG.ts              SVG → PNG via Sharp
 workers/
-  start.ts                — Starts all 4 workers
+  start.ts                      Starts all 4 workers
 prisma/
-  schema.prisma           — Database schema
+  schema.prisma                 Database schema
+tests/
+  e2e.test.ts                   End-to-end test suite
+scripts/
+  reset-failed.ts               Utility: reset stuck records to FAILED
+public/
+  badges/                       Generated badge files (SVG + PNG)
 ```
+
+---
+
+## Health Check
+
+```
+GET /api/health
+```
+
+Returns database and Redis connection status. No auth required.
