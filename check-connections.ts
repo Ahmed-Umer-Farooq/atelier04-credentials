@@ -16,8 +16,8 @@ async function main() {
   try {
     await prisma.$connect();
     console.log("✅ Database connected:", process.env.DATABASE_URL);
-  } catch (e: any) {
-    console.error("❌ Database failed:", e.message);
+  } catch (e: unknown) {
+    console.error("❌ Database failed:", (e as Error).message);
   } finally {
     await prisma.$disconnect();
   }
@@ -26,8 +26,8 @@ async function main() {
     await redis.connect();
     const pong = await redis.ping();
     console.log("✅ Redis connected:", process.env.REDIS_URL, "→", pong);
-  } catch (e: any) {
-    console.error("❌ Redis failed:", e.message);
+  } catch (e: unknown) {
+    console.error("❌ Redis failed:", (e as Error).message);
   } finally {
     redis.disconnect();
   }

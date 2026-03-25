@@ -13,8 +13,8 @@ export async function register() {
   try {
     await prisma.$connect();
     console.log("✅ Database connected: postgresql://localhost:5432/atelier04");
-  } catch (e: any) {
-    console.error("❌ Database failed:", e.message);
+  } catch (e: unknown) {
+    console.error("❌ Database failed:", (e as Error).message);
   } finally {
     await prisma.$disconnect();
   }
@@ -25,8 +25,8 @@ export async function register() {
     await redis.connect();
     await redis.ping();
     console.log("✅ Redis connected:", process.env.REDIS_URL);
-  } catch (e: any) {
-    console.error("❌ Redis failed:", e.message);
+  } catch (e: unknown) {
+    console.error("❌ Redis failed:", (e as Error).message);
   } finally {
     redis.disconnect();
   }
