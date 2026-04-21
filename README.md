@@ -222,7 +222,6 @@ Each job retries 3 times with a 10-second delay. After 3 failures → status: `f
 | `BASE_URL` | ✅ | Your server's public URL (for badge URLs) |
 | `ATELIER04_VERIFICATION_BASE` | ✅ | Base URL for credential verification pages |
 | `EUROPASS_WALLET_URL` | ✅ | Europass EDCI wallet API endpoint |
-| `ATRUST_API_URL` | ✅ | A-Trust eSeal API URL |
 | `ATRUST_P12_PATH` | ✅ | Path to eSeal `.p12` certificate file |
 | `ATRUST_P12_PASSWORD` | ✅ | Password for the `.p12` file |
 
