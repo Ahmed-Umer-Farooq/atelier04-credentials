@@ -8,10 +8,10 @@ datasource db {
 }
 
 model Credential {
-  id               String           @id @default(cuid())
-  credential_id    String           @unique
-  idempotency_key  String           @unique
-  status           CredentialStatus @default(REQUESTED)
+  id                String           @id @default(cuid())
+  credential_id     String           @unique
+  idempotency_key   String           @unique
+  status            CredentialStatus @default(REQUESTED)
   participant_name  String
   participant_email String
   date_of_birth     String?
@@ -27,6 +27,7 @@ model Credential {
   badge_svg_url     String?
   badge_png_url     String?
   verification_url  String?
+  credential_json   String?
   created_at        DateTime         @default(now())
   updated_at        DateTime         @updatedAt
   audit_logs        AuditLog[]
@@ -35,11 +36,11 @@ model Credential {
 model AuditLog {
   id            String     @id @default(cuid())
   credential_id String
-  credential    Credential @relation(fields: [credential_id], references: [id])
   from_status   String
   to_status     String
   reason        String?
   created_at    DateTime   @default(now())
+  credential    Credential @relation(fields: [credential_id], references: [id])
 }
 
 enum CredentialStatus {

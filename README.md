@@ -1,6 +1,6 @@
 # Atelier04 — Digital Credential & Badge System
 
-Standalone backend module for issuing EU-recognized digital credentials (EDC) and open badges to course participants.
+Standalone backend module for issuing EU-recognized digital credentials and open badges to course participants.
 
 ---
 
@@ -8,9 +8,10 @@ Standalone backend module for issuing EU-recognized digital credentials (EDC) an
 
 When a participant completes a course, your system calls our API. We handle:
 - Generating a unique credential ID (`A04-2026-0001`)
-- Building and signing an EDCI XML document
-- Submitting to the Europass wallet
+- Building and signing an EDCI XML document with a qualified eSeal (A-Trust, eIDAS)
+- Building and signing a W3C Verifiable Credential (JSON-LD)
 - Generating an SVG + PNG badge with QR code
+- Hosting a public verification page at `atelier04.at/credentials/{id}`
 - Returning badge URLs, verification URL, and LinkedIn fields
 
 Your system stores the returned data and sends the email to the participant.
@@ -41,14 +42,11 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your values. See the [Environment Variables](#environment-variables) section below.
+Edit `.env` with your values. See [Environment Variables](#environment-variables) below.
 
 > **Note:** If your PostgreSQL password contains `@`, encode it as `%40` in the URL.
-> Example: `password@123` → `password%40123`
 
 ### 3. Create the database
-
-In PostgreSQL, create the database:
 
 ```sql
 CREATE DATABASE atelier04;
@@ -171,8 +169,6 @@ Poll this endpoint to check processing status and retrieve outputs.
 }
 ```
 
-**Status values:**
-
 | Status | Meaning |
 |--------|---------|
 | `requested` | Received, queued for processing |
@@ -182,14 +178,33 @@ Poll this endpoint to check processing status and retrieve outputs.
 
 ---
 
+### GET /credentials/{id}
+
+Public verification page for a credential. No authentication required.
+
+- Shows credential details (participant, course, issuer)
+- Verifies the JSON-LD digital signature
+- Displays verification status: **Verified**, **Pending**, or **Invalid**
+- Includes raw JSON-LD credential for independent verification
+
+---
+
+### GET /api/health
+
+Returns database and Redis connection status. No authentication required.
+
+---
+
 ## Processing Pipeline
 
 After a credential is issued, 4 background jobs run automatically:
 
 ```
 Job 1 — validate        REQUESTED → PROCESSING
-Job 2 — edc_issue       Build EDCI XML → Sign with eSeal → Submit to Europass
-Job 3 — badge_generate  Generate SVG + PNG badge with QR code
+Job 2 — edc_issue       Build EDCI XML → Sign with eSeal (RSA-SHA256)
+                        Build JSON-LD VC → Sign with eSeal (RsaSignature2018)
+                        Submit to Europass wallet
+Job 3 — badge_generate  Generate SVG + PNG badge with QR code (Puppeteer, 6x HD)
 Job 4 — complete        PROCESSING → COMPLETED, write audit log
 ```
 
@@ -207,20 +222,19 @@ Each job retries 3 times with a 10-second delay. After 3 failures → status: `f
 | `BASE_URL` | ✅ | Your server's public URL (for badge URLs) |
 | `ATELIER04_VERIFICATION_BASE` | ✅ | Base URL for credential verification pages |
 | `EUROPASS_WALLET_URL` | ✅ | Europass EDCI wallet API endpoint |
-| `ESEAL_P12_PATH` | ⏳ | Path to eSeal `.p12` file (pending) |
-| `ESEAL_P12_PASSWORD` | ⏳ | Password for eSeal `.p12` file (pending) |
+| `ATRUST_API_URL` | ✅ | A-Trust eSeal API URL |
+| `ATRUST_P12_PATH` | ✅ | Path to eSeal `.p12` certificate file |
+| `ATRUST_P12_PASSWORD` | ✅ | Password for the `.p12` file |
 
 ---
 
 ## Pending Integrations
 
-These are mocked and ready to be replaced when the client provides the assets:
+| Item | File | Status |
+|------|------|--------|
+| Europass wallet submission | `lib/europass/submitToWallet.ts` | ⏳ Awaiting Europass EDCI issuer registration |
 
-| Item | File to update | Status |
-|------|---------------|--------|
-| eSeal `.p12` signing | `lib/europass/signXML.ts` | ⏳ Awaiting `.p12` file |
-| Europass wallet submission | `lib/europass/submitToWallet.ts` | ⏳ Awaiting EDCI registration |
-| Badge design | `lib/badge/generateSVG.ts` | ⏳ Awaiting designer files |
+Everything else is fully implemented and production-ready.
 
 ---
 
@@ -229,16 +243,27 @@ These are mocked and ready to be replaced when the client provides the assets:
 With both `npm run dev` and `npm run workers` running:
 
 ```bash
+npm run test:e2e
+```
+
+or directly:
+
+```bash
 npx tsx tests/e2e.test.ts
 ```
 
-Tests cover:
-- Auth (401 on wrong key)
-- Validation (422 on missing fields)
+**60 tests covering:**
+- Health check (DB + Redis)
+- Authentication (401 on wrong/missing/empty key)
+- Input validation (7 invalid payloads → 422, malformed JSON → 400)
 - Full pipeline: REQUESTED → PROCESSING → COMPLETED
-- Duplicate prevention (idempotency)
-- Badge SVG + PNG file generation
-- 404 on unknown credential
+- All output fields (badge URLs, verification URL, LinkedIn fields)
+- Idempotency (duplicate prevention, retry safety)
+- Badge SVG + PNG served over HTTP (content-type, file size)
+- JSON-LD Verifiable Credential + verification page
+- eSeal XML signing (edc_share_url present)
+- Verification page edge cases (404 on unknown, publicly accessible)
+- Concurrent requests
 
 ---
 
@@ -249,10 +274,14 @@ app/
   api/v1/credentials/
     issue/route.ts              POST — issue credential
     [id]/status/route.ts        GET  — check status
-  api/health/route.ts           GET  — connection health check
+  api/health/route.ts           GET  — health check (no auth)
+  credentials/[id]/page.tsx     GET  — public verification page
 lib/
   auth/validateApiKey.ts        Bearer token validation
   db/prisma.ts                  Prisma client singleton
+  credentials/
+    buildJsonLD.ts              W3C Verifiable Credential builder
+    signJsonLD.ts               JSON-LD eSeal signing + verification
   queue/
     index.ts                    BullMQ queues + Redis connections
     failureHandler.ts           Marks FAILED on exhausted retries
@@ -263,29 +292,32 @@ lib/
       complete.worker.ts        Job 4
   europass/
     buildXML.ts                 EDCI XML builder
-    signXML.ts                  eSeal signing (mock — replace when .p12 provided)
-    submitToWallet.ts           Europass API (mock — replace when registered)
+    signXML.ts                  eSeal XML signing (RSA-SHA256, node-forge)
+    submitToWallet.ts           Europass wallet API (⏳ mock — awaiting registration)
   badge/
-    generateSVG.ts              SVG badge with QR code
-    generatePNG.ts              SVG → PNG via Sharp
+    generateSVG.ts              SVG badge from master template + QR code
+    generatePNG.ts              SVG → PNG via Puppeteer (6x HD)
 workers/
   start.ts                      Starts all 4 workers
 prisma/
   schema.prisma                 Database schema
 tests/
-  e2e.test.ts                   End-to-end test suite
-scripts/
-  reset-failed.ts               Utility: reset stuck records to FAILED
+  e2e.test.ts                   End-to-end test suite (60 tests)
 public/
   badges/                       Generated badge files (SVG + PNG)
+  fonts/                        Bornia + Figtree font files
 ```
 
 ---
 
-## Health Check
+## Security
 
-```
-GET /api/health
-```
-
-Returns database and Redis connection status. No auth required.
+| Measure | Implementation |
+|---------|---------------|
+| API authentication | Bearer token on all endpoints, 401 on failure |
+| Input validation | Zod schema — strict types, email, date, positive integers |
+| Idempotency | Unique `idempotency_key` — safe to retry, no duplicates |
+| eSeal signing | RSA-SHA256 with A-Trust qualified certificate (eIDAS, valid 2026–2031) |
+| JSON-LD signing | RsaSignature2018, detached JWS — tamper detection on every credential |
+| Secrets | `.env` and `.p12` excluded from Git via `.gitignore` |
+| Audit log | Every status change recorded in `AuditLog` table — immutable |

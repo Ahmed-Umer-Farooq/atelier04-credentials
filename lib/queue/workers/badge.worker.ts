@@ -21,6 +21,8 @@ export const badgeWorker = new Worker(
       completion_date: credential.completion_date,
       organization: credential.organization,
       verification_url: credential.verification_url ?? `${process.env.ATELIER04_VERIFICATION_BASE}/${credential.credential_id}`,
+      course_code: credential.course_code,
+      duration_hours: credential.duration_hours,
     });
 
     const { svgUrl, pngUrl } = await generatePNG(svg, credential.credential_id);
