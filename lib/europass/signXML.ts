@@ -8,11 +8,11 @@ import * as crypto from "crypto";
  * Falls back to unsigned XML if ESEAL_P12_PATH or ESEAL_P12_PASSWORD are not set.
  */
 export function signXML(xml: string): string {
-  const p12Path = process.env.ESEAL_P12_PATH;
-  const p12Password = process.env.ESEAL_P12_PASSWORD;
+  const p12Path = process.env.ATRUST_P12_PATH;
+  const p12Password = process.env.ATRUST_P12_PASSWORD;
 
   if (!p12Path || !p12Password) {
-    console.warn("[signXML] ESEAL_P12_PATH or ESEAL_P12_PASSWORD not set — returning unsigned XML");
+    console.warn("[signXML] ATRUST_P12_PATH or ATRUST_P12_PASSWORD not set — returning unsigned XML");
     return xml;
   }
 
