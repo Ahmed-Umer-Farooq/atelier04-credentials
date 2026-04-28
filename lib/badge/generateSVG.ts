@@ -77,9 +77,8 @@ function replaceQRGroupContents(svg: string, contents: string): string {
 }
 
 export async function generateSVG(data: BadgeData): Promise<string> {
-  // Use Frame1_badge_design.svg — the template that produces the correct design
   let svg = await fs.readFile(
-    path.join(process.cwd(), "public", "badges", "Frame1_badge_design.svg"),
+    path.join(process.cwd(), "lib", "badge", "template.svg"),
     "utf-8"
   );
 
