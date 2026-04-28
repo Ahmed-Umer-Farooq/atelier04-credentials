@@ -46,8 +46,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/app/generated/prisma
-
 # eSeal certificate — never commit to version control
 *.p12
 *.pfx

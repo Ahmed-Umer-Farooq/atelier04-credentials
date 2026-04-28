@@ -77,10 +77,14 @@ function replaceQRGroupContents(svg: string, contents: string): string {
 }
 
 export async function generateSVG(data: BadgeData): Promise<string> {
-  let svg = await fs.readFile(
-    path.join(process.cwd(), "lib", "badge", "template.svg"),
-    "utf-8"
-  );
+  // Template path: BADGE_TEMPLATE_PATH env var (optional) or default lib/badge/template.svg
+  const templatePath = process.env.BADGE_TEMPLATE_PATH
+    ? path.isAbsolute(process.env.BADGE_TEMPLATE_PATH)
+      ? process.env.BADGE_TEMPLATE_PATH
+      : path.join(process.cwd(), process.env.BADGE_TEMPLATE_PATH)
+    : path.join(process.cwd(), "lib", "badge", "template.svg");
+
+  let svg = await fs.readFile(templatePath, "utf-8");
 
   const fullName = data.participant_name.trim();
   const { title: courseTitle, subtitle: courseSubtitle } = splitTitle(data.course_title);

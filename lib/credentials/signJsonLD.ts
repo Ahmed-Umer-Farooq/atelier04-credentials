@@ -31,9 +31,9 @@ import type { UnsignedVerifiableCredential } from "./buildJsonLD";
 // ---------------------------------------------------------------------------
 
 /** A fully signed Verifiable Credential — proof.jws is populated. */
-export type SignedVerifiableCredential = UnsignedVerifiableCredential & {
-  proof: UnsignedVerifiableCredential["proof"] & { jws: string };
-};
+export interface SignedVerifiableCredential extends Omit<UnsignedVerifiableCredential, "proof"> {
+  proof: Omit<UnsignedVerifiableCredential["proof"], "jws"> & { jws: string };
+}
 
 /** P12 bundle extracted from the .p12 file. */
 interface P12Bundle {
@@ -98,7 +98,7 @@ function loadP12Bundle(p12Path: string, password: string): P12Bundle {
 
   let p12: forge.pkcs12.Pkcs12Pfx;
   try {
-    const p12Asn1 = forge.asn1.fromDer(forge.util.createBuffer(p12Der));
+    const p12Asn1 = forge.asn1.fromDer(forge.util.createBuffer(p12Der.toString("binary")));
     p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password);
   } catch (err: unknown) {
     throw new Error(
@@ -240,7 +240,7 @@ function assembleSignedCredential(
       ...unsignedVC.proof,
       jws,
     },
-  };
+  } as SignedVerifiableCredential;
 }
 
 // ---------------------------------------------------------------------------

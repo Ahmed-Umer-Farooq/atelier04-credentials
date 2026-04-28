@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Credential {
+  id                String           @id @default(cuid())
+  credential_id     String           @unique
+  idempotency_key   String           @unique
+  status            CredentialStatus @default(REQUESTED)
+  participant_name  String
+  participant_email String
+  date_of_birth     String?
+  course_code       String
+  course_title      String
+  duration_hours    Int
+  completion_date   String
+  result            String?
+  organization      String
+  country           String
+  edc_share_url     String?
+  edc_uuid          String?
+  badge_svg_url     String?
+  badge_png_url     String?
+  verification_url  String?
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  audit_logs        AuditLog[]
+}
+
+model AuditLog {
+  id            String     @id @default(cuid())
+  credential_id String
+  credential    Credential @relation(fields: [credential_id], references: [id])
+  from_status   String
+  to_status     String
+  reason        String?
+  created_at    DateTime   @default(now())
+}
+
+enum CredentialStatus {
+  REQUESTED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
