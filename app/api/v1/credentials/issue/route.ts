@@ -50,37 +50,50 @@ export async function POST(req: NextRequest) {
   }
 
   // Generate credential_id: A04-{YEAR}-{4-digit sequence}
+  // Retry on P2002 (concurrent requests may pick the same count)
   const year = new Date().getFullYear();
   const prefix = `A04-${year}-`;
-  const count = await prisma.credential.count({
-    where: { credential_id: { startsWith: prefix } },
-  });
-  const credential_id = `${prefix}${String(count + 1).padStart(4, "0")}`;
 
-  const credential = await prisma.credential.create({
-    data: {
-      credential_id,
-      idempotency_key,
-      status: "REQUESTED",
-      participant_name: participant.full_name,
-      participant_email: participant.email,
-      course_code: course.course_code,
-      course_title: course.course_title,
-      duration_hours: course.duration_hours,
-      completion_date: course.completion_date,
-      result: course.result,
-      organization: "Atelier04 ESKE GmbH",
-      country: "AT",
-      verification_url: `${process.env.ATELIER04_VERIFICATION_BASE}/${credential_id}`,
-    },
-  });
+  let credential;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const count = await prisma.credential.count({
+      where: { credential_id: { startsWith: prefix } },
+    });
+    const credential_id = `${prefix}${String(count + 1).padStart(4, "0")}`;
+    try {
+      credential = await prisma.credential.create({
+        data: {
+          credential_id,
+          idempotency_key,
+          status: "REQUESTED",
+          participant_name: participant.full_name,
+          participant_email: participant.email,
+          course_code: course.course_code,
+          course_title: course.course_title,
+          duration_hours: course.duration_hours,
+          completion_date: course.completion_date,
+          result: course.result,
+          organization: "Atelier04 ESKE GmbH",
+          country: "AT",
+          verification_url: `${process.env.ATELIER04_VERIFICATION_BASE}/${credential_id}`,
+        },
+      });
+      break;
+    } catch (err: unknown) {
+      const isUniqueViolation =
+        typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
+      if (!isUniqueViolation || attempt === 9) throw err;
+    }
+  }
+
+  if (!credential) throw new Error("Failed to generate unique credential_id");
 
   await validateQueue.add("validate", { credentialDbId: credential.id });
 
   return NextResponse.json({
     status: "accepted",
-    credential_id,
+    credential_id: credential.credential_id,
     current_status: "requested",
-    status_check_url: `/api/v1/credentials/${credential_id}/status`,
+    status_check_url: `/api/v1/credentials/${credential.credential_id}/status`,
   }, { status: 202 });
 }
